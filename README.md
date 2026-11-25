@@ -69,6 +69,7 @@ ln -sfn /opt/tuhosting-node/versions/26.13.1 /opt/tuhosting-node/versions/26
 Descargá el ZIP desde [GitHub Releases](https://github.com/ruedalacruz/tuhosting-nodejs-manager/releases), descomprimilo y ejecutá como root:
 
 ```bash
+wget https://github.com/ruedalacruz/tuhosting-nodejs-manager/releases/download/v0.4.1/tuhosting-nodejs-manager-0.4.1.zip
 unzip tuhosting-nodejs-manager-0.4.1.zip
 cd tuhosting-nodejs-manager
 chmod +x *.sh
