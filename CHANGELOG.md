@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+- README ampliado con instalación rápida de Node.js 24 y 26.
+- Documentación detallada de instalación, verificación SHA256, arquitectura x86_64/ARM64, permisos y coexistencia de versiones.
+- Se aclara que el instalador del manager no instala ni actualiza Node.js.
+- Sin cambios en el código funcional del manager respecto de 0.4.0.
+
 ## 0.4.0
 - Instalador global: elimina usuario y dominio de staging hardcodeados.
 - No cambia automáticamente dominios existentes.
