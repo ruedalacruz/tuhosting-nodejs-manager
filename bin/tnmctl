@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""Tuhosting Node.js Manager 0.3 - privileged, validated control plane."""
+import argparse, fcntl, hashlib, json, os, pwd, re, shutil, subprocess, sys, tempfile, shlex
+from pathlib import Path
+
+HESTIA=Path('/usr/local/hestia'); NODE_ROOT=Path('/opt/tuhosting-node'); STATE=Path('/var/lib/tuhosting-nodejs')
+PORT_MIN,PORT_MAX=3100,3999
+USER_RE=re.compile(r'^[a-zA-Z0-9_.-]{1,32}$')
+DOMAIN_RE=re.compile(r'^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))+$')
+SLUG_RE=re.compile(r'^[a-z0-9][a-z0-9-]{0,30}$')
+ROUTE_RE=re.compile(r'^/(?:[A-Za-z0-9_-]+/)*$')
+
+def out(**x): print(json.dumps(x,ensure_ascii=False))
+def die(s): out(ok=False,error=s); raise SystemExit(1)
+def run(a,timeout=30,check=False,**kw):
+    p=subprocess.run(a,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout,**kw)
+    if check and p.returncode: die(p.stdout.strip() or 'Falló comando: '+a[0])
+    return p
+
+def hestia_domains(user):
+    p=run([str(HESTIA/'bin/v-list-web-domains'),user,'json'])
+    if p.returncode: die('No se pudieron consultar los dominios en Hestia.')
+    try: return json.loads(p.stdout)
+    except Exception: die('Respuesta JSON inválida de Hestia.')
+
+def context(user,domain):
+    if not USER_RE.fullmatch(user): die('Usuario inválido.')
+    try: ent=pwd.getpwnam(user)
+    except KeyError: die('El usuario Linux no existe.')
+    if not DOMAIN_RE.fullmatch(domain): die('Dominio inválido.')
+    domains=hestia_domains(user)
+    if domain not in domains: die('El dominio no pertenece al usuario.')
+    if (domains[domain].get('PROXY') or '').lower() not in ('tuhosting-nodejs',): die('El dominio debe usar la plantilla proxy tuhosting-nodejs.')
+    home=Path(ent.pw_dir)
+    web=(home/'web'/domain).resolve()
+    if not str(web).startswith(str((home/'web').resolve())+os.sep): die('Ruta de dominio inválida.')
+    conf=home/'conf'/'web'/domain
+    if not conf.is_dir(): die('No existe la configuración Nginx del dominio.')
+    return ent,web,conf
+
+def state_file(user,domain):
+    key=hashlib.sha256((user+'|'+domain.lower()).encode()).hexdigest()
+    return STATE/(key+'.json')
+def load(user,domain):
+    p=state_file(user,domain)
+    if not p.exists(): return {'user':user,'domain':domain,'apps':[]}
+    try: d=json.loads(p.read_text())
+    except Exception: die('Registro de aplicaciones corrupto.')
+    if d.get('user')!=user or d.get('domain')!=domain: die('Registro no coincide con el dominio.')
+    return d
+def save(d):
+    STATE.mkdir(mode=0o700,parents=True,exist_ok=True); os.chmod(STATE,0o700)
+    p=state_file(d['user'],d['domain']); fd,tmp=tempfile.mkstemp(dir=STATE,prefix='.tmp-')
+    with os.fdopen(fd,'w') as f: json.dump(d,f,indent=2); f.flush(); os.fsync(f.fileno())
+    os.chmod(tmp,0o600); os.replace(tmp,p)
+
+def unit_name(user,domain,slug):
+    dh=hashlib.sha256(domain.lower().encode()).hexdigest()[:8]
+    return f'tuhosting-node-{user}-{dh}-{slug}.service'
+def app_path(web,slug): return web/'private'/'nodejs'/'apps'/slug
+
+def node_candidates(version):
+    # Prefer managed aliases, then common system-wide Node installations.
+    candidates = [
+        NODE_ROOT/'versions'/version/'bin'/'node',
+        Path('/usr/local/bin/node'),
+        Path('/usr/bin/node'),
+        Path('/opt/nodejs/bin/node'),
+    ]
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            try:
+                major = subprocess.check_output([str(candidate), '-p', 'process.versions.node.split(".")[0]'], text=True, timeout=5).strip()
+                if major == version:
+                    yield candidate
+            except Exception:
+                continue
+
+def node_bin(version):
+    if version not in ('24','26'): die('Versión Node.js no permitida (24 o 26).')
+    p=next(node_candidates(version), None)
+    if p is None: die(f'No se encontró Node.js {version}. Instalá esa versión globalmente o en {NODE_ROOT}/versions/{version}/bin/node.')
+    return p
+
+def port_used(port,apps):
+    if any(a['port']==port for a in apps): return True
+    p=run(['/bin/ss','-ltnH'])
+    return any(re.search(r'[:.]'+str(port)+r'\s',line) for line in p.stdout.splitlines())
+def choose_port(apps):
+    used={a['port'] for a in apps}
+    for port in range(PORT_MIN,PORT_MAX+1):
+        if port not in used and not port_used(port,apps): return port
+    die('No quedan puertos libres en el rango 3100-3999.')
+
+def write_unit(ent,web,app):
+    node=node_bin(app['version']); slug=app['id']; directory=app_path(web,slug)
+    unit=unit_name(ent.pw_name,app['domain'],slug)
+    content=f'''[Unit]\nDescription=Tuhosting Node.js {app['domain']} / {slug}\nAfter=network.target\n\n[Service]\nType=simple\nUser={ent.pw_name}\nGroup={ent.pw_name}\nWorkingDirectory={directory}\nEnvironment=NODE_ENV=production\nEnvironment=PORT={app['port']}\nEnvironment=HOST=127.0.0.1\nEnvironment=PATH={node.parent}:/usr/local/bin:/usr/bin:/bin\nExecStart={node} {app['entry']}\nRestart=on-failure\nRestartSec=5\nMemoryMax=512M\nCPUQuota=100%\nTasksMax=128\nNoNewPrivileges=true\nPrivateTmp=true\nProtectSystem=strict\nProtectHome=false\nReadWritePaths={directory}\n\n[Install]\nWantedBy=multi-user.target\n'''
+    target=Path('/etc/systemd/system')/unit
+    target.write_text(content); os.chmod(target,0o644)
+    run(['/bin/systemctl','daemon-reload'],check=True)
+    return unit
+
+def proxy_files(conf,apps):
+    # Hestia's stock nodejs template includes nginx.nodejs-upstream.conf inside location /.
+    # This file is deliberately only the root proxy_pass; additional locations require
+    # the companion server-context include installed by the custom template.
+    root=next((a for a in apps if a.get('route')=='/'),None)
+    upstream=conf/'nginx.nodejs-upstream.conf'
+    if root:
+        upstream.write_text(f'proxy_pass http://127.0.0.1:{root["port"]};\n')
+    else:
+        upstream.write_text('# Tuhosting Node.js: root application unavailable\nreturn 503;\n')
+    routes=[]
+    for a in apps:
+        if a['route']=='/': continue
+        path=a['route']
+        routes.append(f'''location ^~ {path} {{\n    proxy_pass http://127.0.0.1:{a['port']}/;\n    proxy_http_version 1.1;\n    proxy_set_header Upgrade $http_upgrade;\n    proxy_set_header Connection "upgrade";\n    proxy_set_header Host $host;\n    proxy_set_header X-Real-IP $remote_addr;\n    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n    proxy_set_header X-Forwarded-Proto $scheme;\n    proxy_read_timeout 300s;\n}}\n''')
+    target=conf/'nginx.tuhosting-nodejs-routes.conf'
+    target.write_text('\n'.join(routes)+'\n')
+    os.chmod(target,0o640)
+
+
+def service_action(action,unit):
+    if action in ('start','stop','restart'): run(['/bin/systemctl',action,unit],timeout=45,check=True)
+    p=run(['/bin/systemctl','show',unit,'-p','LoadState','-p','ActiveState','-p','SubState','-p','MainPID','--value'])
+    v=p.stdout.splitlines()+['unknown']*4
+    return {'service':unit,'load_state':v[0],'active':v[1]=='active','state':v[2],'pid':v[3]}
+
+def main():
+    ap=argparse.ArgumentParser(); ap.add_argument('user'); ap.add_argument('action',choices=['versions','list','create','update','delete','start','stop','restart','status','logs','npm-install']); ap.add_argument('domain',nargs='?'); ap.add_argument('slug',nargs='?'); ap.add_argument('--name',default=''); ap.add_argument('--route',default='/'); ap.add_argument('--version',default='24'); ap.add_argument('--entry',default='server.js'); ap.add_argument('--port',type=int); args=ap.parse_args()
+    if os.geteuid()!=0: die('Este helper debe ejecutarse como root mediante sudo.')
+    if not USER_RE.fullmatch(args.user): die('Usuario inválido.')
+    if args.action=='versions':
+        versions=[]
+        for v in ('24','26'):
+            p=next(node_candidates(v), None)
+            if p: versions.append({'alias':v,'version':run([str(p),'-v']).stdout.strip(), 'path':str(p)})
+        out(ok=True,versions=versions); return
+    if not args.domain: die('Falta dominio.')
+    ent,web,conf=context(args.user,args.domain)
+    lockdir=STATE; lockdir.mkdir(mode=0o700,parents=True,exist_ok=True)
+    with open(STATE/'manager.lock','w') as lock:
+      fcntl.flock(lock,fcntl.LOCK_EX); data=load(args.user,args.domain); apps=data['apps']
+      if args.action=='list': out(ok=True,apps=apps); return
+      if args.action=='create':
+        slug=args.slug or ''
+        if not SLUG_RE.fullmatch(slug): die('ID inválido: use minúsculas, números y guiones (máximo 31 caracteres).')
+        if any(a['id']==slug for a in apps): die('Ya existe una aplicación con ese ID.')
+        if not ROUTE_RE.fullmatch(args.route) or (args.route!='/' and args.route.count('/')<1): die('Ruta inválida; ejemplo /api/.')
+        if any(a['route']==args.route for a in apps): die('Ya existe una aplicación en esa ruta.')
+        if not apps and args.route != '/': die('La primera aplicación debe usar la ruta raíz /. Después podés agregar /api/, /panel/, etc.')
+        node_bin(args.version)
+        entry=args.entry
+        if not re.fullmatch(r'[A-Za-z0-9_./-]{1,100}',entry) or entry.startswith('/') or '..' in Path(entry).parts: die('Archivo de entrada inválido.')
+        port=args.port or choose_port(apps)
+        if not PORT_MIN<=port<=PORT_MAX or port_used(port,apps): die('Puerto ocupado o fuera del rango permitido.')
+        directory=app_path(web,slug); directory.mkdir(parents=True,exist_ok=False)
+        (directory/'package.json').write_text(json.dumps({'name':slug,'version':'1.0.0','private':True,'scripts':{'start':f'node {entry}' }},indent=2)+'\n')
+        (directory/'server.js').write_text("const http = require('http');\nconst host = process.env.HOST || '127.0.0.1';\nconst port = Number(process.env.PORT || 3000);\nhttp.createServer((req,res)=>{res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({ok:true,app:"+json.dumps(slug)+",path:req.url}));}).listen(port,host,()=>console.log('Listening on '+host+':'+port));\n")
+        for root,dirs,files in os.walk(directory):
+            os.chown(root,ent.pw_uid,ent.pw_gid)
+            for fn in files: os.chown(os.path.join(root,fn),ent.pw_uid,ent.pw_gid)
+        os.chmod(directory,0o750)
+        app={'id':slug,'name':args.name or slug,'route':args.route,'version':args.version,'port':port,'entry':entry,'domain':args.domain,'path':str(directory)}
+        apps.append(app); unit=write_unit(ent,web,app); app['service']=unit
+        run(['/bin/systemctl','enable','--now',unit],check=True)
+        proxy_files(conf,apps); save(data)
+        test=run(['/usr/sbin/nginx','-t'])
+        if test.returncode != 0: die('La aplicación se creó y arrancó, pero nginx -t falló; revisar la configuración: '+test.stdout[-2000:])
+        run(['/bin/systemctl','reload','nginx'])
+        out(ok=True,message='Aplicación creada. Copiá tu proyecto al directorio indicado y luego instalá dependencias.',app=app); return
+      if not args.slug: die('Falta ID de aplicación.')
+      app=next((a for a in apps if a['id']==args.slug),None)
+      if not app: die('Aplicación no encontrada.')
+      unit=app.get('service') or unit_name(args.user,args.domain,args.slug)
+      if args.action in ('start','stop','restart','status'):
+        result=service_action(args.action,unit); out(ok=True,**result); return
+      if args.action=='logs':
+        p=run(['/bin/journalctl','-u',unit,'-n','150','--no-pager','-o','short-iso'],timeout=30); out(ok=p.returncode==0,logs=p.stdout[-30000:]); return
+      if args.action=='npm-install':
+        node=node_bin(app['version']); directory=Path(app['path'])
+        npm_candidates=[node.parent/'npm', Path('/usr/local/bin/npm'), Path('/usr/bin/npm')]
+        npm=next((x for x in npm_candidates if x.is_file() and os.access(x,os.X_OK)), None)
+        if npm is None: die('No se encontró npm para la versión Node.js seleccionada.')
+        if not (directory/'package.json').is_file(): die('No existe package.json en el directorio de la aplicación.')
+        env=os.environ.copy(); env['PATH']=str(node.parent)+':/usr/local/bin:/usr/bin:/bin'
+        p=subprocess.run(['/usr/sbin/runuser','-u',args.user,'--','/bin/bash','-lc',f'cd {shlex_quote(str(directory))} && PATH={shlex_quote(env["PATH"])} {shlex_quote(str(npm))} install'],env=env,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=900)
+        out(ok=p.returncode==0,output=p.stdout[-30000:]); return
+      if args.action=='update':
+        if '--route' in sys.argv:
+            if not ROUTE_RE.fullmatch(args.route) or any(x['id']!=args.slug and x['route']==args.route for x in apps): die('Ruta inválida o ya utilizada.')
+            app['route']=args.route
+        if '--version' in sys.argv: node_bin(args.version); app['version']=args.version
+        if '--entry' in sys.argv:
+            if not re.fullmatch(r'[A-Za-z0-9_./-]{1,100}',args.entry) or args.entry.startswith('/') or '..' in Path(args.entry).parts: die('Archivo de entrada inválido.')
+            app['entry']=args.entry
+        if '--name' in sys.argv: app['name']=args.name
+        app['service']=write_unit(ent,web,app); proxy_files(conf,apps); save(data)
+        test=run(['/usr/sbin/nginx','-t'])
+        if test.returncode == 0: run(['/bin/systemctl','reload','nginx'])
+        out(ok=True,message='Aplicación actualizada.',app=app); return
+      if args.action=='delete':
+        if app.get('route')=='/' and len(apps)>1: die('No podés retirar la aplicación raíz mientras existan otras aplicaciones. Cambiá primero sus rutas o retiralas.')
+        run(['/bin/systemctl','disable','--now',unit])
+        (Path('/etc/systemd/system')/unit).unlink(missing_ok=True)
+        run(['/bin/systemctl','daemon-reload'])
+        # No se borra el código del cliente: sólo se retira del administrador.
+        apps.remove(app); proxy_files(conf,apps); save(data)
+        test=run(['/usr/sbin/nginx','-t'])
+        if test.returncode == 0: run(['/bin/systemctl','reload','nginx'])
+        else: die('La aplicación se retiró, pero nginx -t falló; revisar configuración: '+test.stdout[-2000:])
+        out(ok=True,message='Aplicación retirada. El código quedó preservado.',path=app['path']); return
+
+def shlex_quote(s):
+    import shlex
+    return shlex.quote(s)
+if __name__=='__main__':
+    try: main()
+    except subprocess.TimeoutExpired: die('La operación excedió el tiempo permitido.')
+    except SystemExit: raise
+    except Exception as e: die('Error interno: '+str(e))
