@@ -1,5 +1,12 @@
 # Changelog
 
+
+## [0.4.2] - 2026-11-26
+
+### Corregido
+- El instalador ya no depende de que Hestia tenga `nodejs.tpl` y `nodejs.stpl`; genera las plantillas propias a partir de `default.tpl` y `default.stpl`.
+- Las plantillas TNM incluyen el proxy raíz por dominio y las rutas secundarias.
+- La documentación prepara `PATH` al ejecutar npm, cuyo shebang utiliza `/usr/bin/env node`.
 ## 0.4.1
 - README ampliado con instalación rápida de Node.js 24 y 26.
 - Documentación detallada de instalación, verificación SHA256, arquitectura x86_64/ARM64, permisos y coexistencia de versiones.

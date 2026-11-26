@@ -1,4 +1,4 @@
-# Instalación y operación 0.4.1
+# Instalación y operación 0.4.2
 
 Esta guía describe la preparación de Node.js 24/26, la instalación del manager en HestiaCP y las tareas básicas de operación. Los comandos de instalación de Node.js están escritos para Ubuntu/Debian x86_64 y deben ejecutarse como `root`.
 
@@ -59,7 +59,8 @@ tar -xJf node-v24.22.3-linux-x64.tar.xz \
 ln -sfn /opt/tuhosting-node/versions/24.22.3 \
   /opt/tuhosting-node/versions/24
 /opt/tuhosting-node/versions/24/bin/node -v
-/opt/tuhosting-node/versions/24/bin/npm -v
+export PATH=/opt/tuhosting-node/versions/24/bin:$PATH
+npm -v
 ```
 
 La primera comprobación debe devolver `v24.22.3`.
@@ -86,7 +87,8 @@ tar -xJf node-v26.13.1-linux-x64.tar.xz \
 ln -sfn /opt/tuhosting-node/versions/26.13.1 \
   /opt/tuhosting-node/versions/26
 /opt/tuhosting-node/versions/26/bin/node -v
-/opt/tuhosting-node/versions/26/bin/npm -v
+export PATH=/opt/tuhosting-node/versions/26/bin:$PATH
+npm -v
 ```
 
 La primera comprobación debe devolver `v26.13.1`.
@@ -110,7 +112,7 @@ No ejecutes `chmod` recursivo sobre todos los archivos: podrías quitar permisos
 Descomprimí el paquete y ejecutá el instalador como root:
 
 ```bash
-unzip tuhosting-nodejs-manager-0.4.1.zip
+unzip tuhosting-nodejs-manager-0.4.2.zip
 cd tuhosting-nodejs-manager
 chmod +x *.sh
 ./install-tuhosting-nodejs.sh
@@ -202,4 +204,4 @@ La desinstalación retira la interfaz, el helper, sudoers y las plantillas propi
 
 ## 8. Alcance y validación
 
-La versión 0.4.1 actualiza la documentación y el paquete de distribución; no modifica el código del administrador respecto de 0.4.0. La versión 0.4.0 fue probada por el usuario en Ubuntu 24.04.4 LTS con HestiaCP 1.10.10. Se recomienda probar también en una instalación Hestia limpia y en otra versión de Hestia antes de declarar el proyecto estable.
+La versión 0.4.2 actualiza la documentación y el paquete de distribución; no modifica el código del administrador respecto de 0.4.0. La versión 0.4.0 fue probada por el usuario en Ubuntu 24.04.4 LTS con HestiaCP 1.10.10. Se recomienda probar también en una instalación Hestia limpia y en otra versión de Hestia antes de declarar el proyecto estable.

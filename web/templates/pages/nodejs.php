@@ -1,5 +1,5 @@
 <div class="container">
- <h1 class="u-mb20">Tuhosting Node.js Manager <small>0.4.0</small></h1>
+ <h1 class="u-mb20">Tuhosting Node.js Manager <small>0.4.2</small></h1>
  <?php if ($tnm_notice): ?><div class="alert <?= !empty($tnm_notice['ok']) ? 'alert-success' : 'alert-danger' ?> u-mb20"><?= tohtml($tnm_notice['message'] ?? $tnm_notice['error'] ?? 'Operación procesada.') ?></div><?php endif; ?>
  <div class="form-container u-mb20"><h2>Versiones Node.js</h2>
  <?php if (!empty($tnm_versions['versions'])): ?><ul><?php foreach ($tnm_versions['versions'] as $v): ?><li><?= tohtml($v['alias']) ?> — <?= tohtml($v['version']) ?></li><?php endforeach; ?></ul><?php else: ?><p>No se detectó Node.js 24/26. Se buscan instalaciones administradas y ubicaciones globales habituales.</p><?php endif; ?></div>

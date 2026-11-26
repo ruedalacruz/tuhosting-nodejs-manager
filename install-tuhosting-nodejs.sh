@@ -10,8 +10,8 @@ B="/root/tuhosting-nodejs-backup-$STAMP"
 
 for f in \
   "$H/bin/v-list-web-domains" "$H/bin/v-change-web-domain-proxy-tpl" \
-  "$H/bin/v-rebuild-web-domain" "$H/data/templates/web/nginx/nodejs.tpl" \
-  "$H/data/templates/web/nginx/nodejs.stpl" "$H/web/inc/main.php" \
+  "$H/bin/v-rebuild-web-domain" "$H/data/templates/web/nginx/default.tpl" \
+  "$H/data/templates/web/nginx/default.stpl" "$H/web/inc/main.php" \
   "$H/web/templates/includes/panel.php"; do
   [[ -e "$f" ]] || { echo "No parece una instalación Hestia válida: falta $f" >&2; exit 1; }
 done
@@ -41,21 +41,9 @@ for f in \
   "$H/data/templates/web/nginx/tuhosting-nodejs.sh" \
   "$H/web/templates/includes/panel.php"; do backup "$f"; done
 
-# Build isolated templates from the server's own Hestia Node.js templates.
-python3 - "$H/data/templates/web/nginx" <<'PY'
-import pathlib, re, sys
-p = pathlib.Path(sys.argv[1])
-for ext in ('tpl', 'stpl'):
-    src = p / f'nodejs.{ext}'
-    content = src.read_text()
-    marker = 'include %home%/%user%/conf/web/%domain%/nginx.tuhosting-nodejs-routes.conf;'
-    if marker not in content:
-        match = re.search(r'(?m)^\s*location\s+/\s*\{', content)
-        if not match:
-            raise SystemExit(f'No se encontró location / en {src}; no se modificó el template nativo.')
-        content = content[:match.start()] + '    ' + marker + '\n\n' + content[match.start():]
-    (p / f'tuhosting-nodejs.{ext}').write_text(content)
-PY
+# Build independent templates from Hestia's stock Nginx proxy templates.
+# Hestia does not ship nodejs.tpl/nodejs.stpl on clean installations.
+python3 "$SRC/templates/nginx/build-templates.py" "$H/data/templates/web/nginx"
 
 install -o root -g root -m 0750 "$SRC/templates/nginx/tuhosting-nodejs.sh" \
   "$H/data/templates/web/nginx/tuhosting-nodejs.sh"

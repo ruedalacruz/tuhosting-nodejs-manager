@@ -72,3 +72,36 @@ with tempfile.TemporaryDirectory() as tmp:
 
 print("Proxy tests OK (root, no-root and secondary routes).")
 PY
+
+# Test installer template builder against a clean Hestia layout (default only).
+TMP_TEMPLATES="$(mktemp -d)"
+trap 'rm -rf "$TMP_TEMPLATES"' EXIT
+mkdir -p "$TMP_TEMPLATES/nginx"
+cat > "$TMP_TEMPLATES/nginx/default.tpl" <<'TPL'
+server {
+    listen %ip%:%proxy_port%;
+    location / {
+        proxy_pass http://%ip%:%web_port%;
+        proxy_set_header Host $host;
+    }
+}
+TPL
+cat > "$TMP_TEMPLATES/nginx/default.stpl" <<'STPL'
+server {
+    listen %ip%:%proxy_ssl_port% ssl;
+    location / {
+        proxy_pass http://%ip%:%web_ssl_port%;
+        proxy_set_header Host $host;
+    }
+}
+STPL
+python3 "$ROOT/templates/nginx/build-templates.py" "$TMP_TEMPLATES/nginx"
+for ext in tpl stpl; do
+  test -f "$TMP_TEMPLATES/nginx/tuhosting-nodejs.$ext"
+  grep -q 'nginx.tuhosting-nodejs-routes.conf' "$TMP_TEMPLATES/nginx/tuhosting-nodejs.$ext"
+  grep -q 'nginx.nodejs-upstream.conf' "$TMP_TEMPLATES/nginx/tuhosting-nodejs.$ext"
+done
+! grep -q 'nodejs\.tpl' "$ROOT/install-tuhosting-nodejs.sh"
+rm -rf "$TMP_TEMPLATES"
+trap - EXIT
+echo 'Clean Hestia template-builder tests OK.'

@@ -1,4 +1,4 @@
-# TuHosting Node.js Manager 0.4.1
+# TuHosting Node.js Manager 0.4.2
 
 Administrador multiaplicación Node.js integrado en HestiaCP. Esta versión instala la interfaz y las plantillas de forma global, sin depender de un usuario o dominio de pruebas. **No cambia los dominios existentes durante la instalación.**
 
@@ -45,7 +45,8 @@ mkdir -p /opt/tuhosting-node/versions/24.22.3
 tar -xJf node-v24.22.3-linux-x64.tar.xz --strip-components=1 -C /opt/tuhosting-node/versions/24.22.3
 ln -sfn /opt/tuhosting-node/versions/24.22.3 /opt/tuhosting-node/versions/24
 /opt/tuhosting-node/versions/24/bin/node -v
-/opt/tuhosting-node/versions/24/bin/npm -v
+export PATH=/opt/tuhosting-node/versions/24/bin:$PATH
+npm -v
 ```
 
 **Node.js 26.13.1**
@@ -59,7 +60,8 @@ mkdir -p /opt/tuhosting-node/versions/26.13.1
 tar -xJf node-v26.13.1-linux-x64.tar.xz --strip-components=1 -C /opt/tuhosting-node/versions/26.13.1
 ln -sfn /opt/tuhosting-node/versions/26.13.1 /opt/tuhosting-node/versions/26
 /opt/tuhosting-node/versions/26/bin/node -v
-/opt/tuhosting-node/versions/26/bin/npm -v
+export PATH=/opt/tuhosting-node/versions/26/bin:$PATH
+npm -v
 ```
 
 **Verificación SHA256:** en cada versión, compará la suma que muestra `grep` con la que calcula `sha256sum`. Deben coincidir exactamente. No continúes si no coinciden. Los comandos anteriores son para x86_64; en ARM64 descargá el archivo `linux-arm64` correspondiente. No es obligatorio instalar ambas versiones.
@@ -69,8 +71,7 @@ ln -sfn /opt/tuhosting-node/versions/26.13.1 /opt/tuhosting-node/versions/26
 Descargá el ZIP desde [GitHub Releases](https://github.com/ruedalacruz/tuhosting-nodejs-manager/releases), descomprimilo y ejecutá como root:
 
 ```bash
-wget https://github.com/ruedalacruz/tuhosting-nodejs-manager/releases/download/v0.4.1/tuhosting-nodejs-manager-0.4.1.zip
-unzip tuhosting-nodejs-manager-0.4.1.zip
+unzip tuhosting-nodejs-manager-0.4.2.zip
 cd tuhosting-nodejs-manager
 chmod +x *.sh
 ./install-tuhosting-nodejs.sh
@@ -111,4 +112,4 @@ Para desinstalar, ejecutá `./uninstall-tuhosting-nodejs.sh` como root. El desin
 
 ## Alcance y validación
 
-La versión 0.4.1 actualiza la documentación y el paquete de distribución; no modifica el código del administrador respecto de 0.4.0. La versión 0.4.0 fue probada por el usuario en Ubuntu 24.04.4 LTS con HestiaCP 1.10.10. Antes de declararla estable, se recomienda probar también en una instalación Hestia limpia y en otra versión de Hestia.
+La versión 0.4.2 actualiza la documentación y el paquete de distribución; no modifica el código del administrador respecto de 0.4.0. La versión 0.4.0 fue probada por el usuario en Ubuntu 24.04.4 LTS con HestiaCP 1.10.10. Antes de declararla estable, se recomienda probar también en una instalación Hestia limpia y en otra versión de Hestia.
