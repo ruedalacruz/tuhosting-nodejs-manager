@@ -71,6 +71,7 @@ npm -v
 Descargá el ZIP desde [GitHub Releases](https://github.com/ruedalacruz/tuhosting-nodejs-manager/releases), descomprimilo y ejecutá como root:
 
 ```bash
+wget https://github.com/ruedalacruz/tuhosting-nodejs-manager/releases/download/v0.4.2/tuhosting-nodejs-manager-0.4.2.zip
 unzip tuhosting-nodejs-manager-0.4.2.zip
 cd tuhosting-nodejs-manager
 chmod +x *.sh
